@@ -80,7 +80,9 @@ sub debug_hints {
 
 sub debug {
     my $self=shift;
-    return unless($self->{DEBUG_HINTS_SLOT}->{enable} or $debug);
+#    return unless($self->{DEBUG_HINTS_SLOT}->{enable});
+    
+    return unless $debug;
     my $pkg=caller;
     print STDERR "In $pkg, @_\n";
 }

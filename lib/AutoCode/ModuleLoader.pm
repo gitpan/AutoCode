@@ -30,7 +30,7 @@ sub load_schema {
 sub load {
     my ($pkg, $type, $prefix)=@_;
     return $LOADED{$type} if(exists $LOADED{$type});        
-    my $vp = $FACTORY->make_virtual_module($type);
+    my $vp = $FACTORY->make_module($type);
     $LOADED{$type}=$vp;
     return $vp;
     

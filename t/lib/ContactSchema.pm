@@ -5,7 +5,8 @@ our @ISA=qw(AutoCode::Schema);
 
 our $modules= {
     DBObject=>{
-        dbid =>'$I+10',
+#        dbid =>'$I+10',
+#        
         adaptor =>'$'
     },
     Person => {
@@ -17,6 +18,10 @@ our $modules= {
         nric => '$NRIC',
         email => '@Email',
     },
+    Buddy=>{
+        '@ISA'=>'Person',
+        home_address => '$',
+    },
     NRIC => { # National Registration Identity Card, Singapore-style.
         no => '$',
         issue_date => '$'
@@ -26,6 +31,10 @@ our $modules= {
         '@ISA' => 'DBObject',
         address => '$V200!',
         purpose => '${office, personal}'
+    },
+    ContactGroup => { name => '$' },
+    '~friends'=>{
+        'Person-ContactGroup' => 'rank:I;',
     }
 };
 

@@ -5,8 +5,11 @@ our @ISA=qw(AutoCode::Root);
 use AutoCode::AccessorMaker (
     '$' => [qw(schema type _value_attributes _directive_attributes)],
     '@' => ['scalar_attribute', 'array_attribute', 'scalar_slot', 'array_slot',
-        [qw(scalar_child scalar_children)], [qw(array_child array_children)]]
+        [qw(scalar_child scalar_children)], [qw(array_child array_children)],
+        'isa']
 );
+
+use AutoCode::AttributeType;
 
 sub _initialize {
     my ($self, @args)=@_;
@@ -16,19 +19,12 @@ sub _initialize {
     defined $type or $self->throw("NO type!");
     $self->type($type);
 
-    $self->__initialize_attributes; # value_attribute, directive_attribute 
-    
-
-    $self->_add_array_accessor('isa');
-    my %d_attrs=%{$self->_directive_attributes};
-    if(exists $d_attrs{'@ISA'}){
-        my $isa=$d_attrs{'@ISA'};
-        $self->add_isa((ref($isa) eq'ARRAY')?@$isa:$isa);
-    }
+    $self->__initialize_value_attributes; # value_attribute, directive_attribute 
+    $self->__initialize_directive_attributes;
 
 }
 
-sub __initialize_attributes {
+sub __initialize_value_attributes {
     my $self=shift;
     my ($schema, $type)=($self->schema, $self->type);
     my %module =%{$schema->_get_module_definition($type)};
@@ -59,8 +55,14 @@ sub __initialize_attributes {
     }
 }
 
-sub __initialize_value_attributes {
+
+sub __initialize_directive_attributes {
     my $self=shift;
+    my %d_attrs=%{$self->_directive_attributes};
+    if(exists $d_attrs{'@ISA'}){
+        my $isa=$d_attrs{'@ISA'};
+        $self->add_isa((ref($isa) eq'ARRAY')?@$isa:$isa);
+    }
 }
 
 sub get_all_value_attributes {
@@ -87,25 +89,8 @@ sub _classify_value_attribute {
     my ($self, $attr)=@_;
     my $value = $self->get_value_attribute($attr);
     
-    $self->throw("[$value] in [$attr] must start with [%@\$]")
-        unless $value =~ s/^([\%\$\@])//;
-    my $context=$1;
-    my $required = $value =~ s/\!$//;
-
-    my ($kind, $content);
-    local $_=$value;
-    if(/^$/){
-        ($kind, $content)=('P', 'V255'); # Default
-    }elsif(/^([CVIDFT])(([\+\^]?[\d]+)(\.\d+)?)?(U?)$/){
-        ($kind, $content)=('P', $value);
-    }elsif(/^\{([^}]+)\}$/){
-        ($kind, $content)=('E', $1);
-    }elsif(/^([_A-Z]\w+)$/){
-        ($kind, $content)=('M', $1);
-    }else{
-        $self->throw("[$value] does not match any kind of pattern");
-    }
-    return ($context, $kind, $content, $required);
+    return AutoCode::AttributeType->classify($value);
+    
 }
 
 

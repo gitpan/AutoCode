@@ -12,7 +12,7 @@ my $module_factory = AutoCode::ModuleFactory->new(
     -schema => ContactSchema->new  (-package_prefix => 'MyContact')
 );
 
-my $module_package = $module_factory->make_virtual_module('Person');
+my $module_package = $module_factory->make_module('Person');
 
 use AutoCode::SymbolTableUtils;
 
@@ -43,6 +43,8 @@ ok ref($instance->can('first_name')), 'CODE';
 
 ok ! $instance->can('name');
 
-ok UNIVERSAL::isa($instance, 'MyContact::Virtual::DBObject');
-ok ref($instance->can('dbid')), 'CODE';
+my $buddy_module=$module_factory->make_module('Buddy');
+my $buddy=$buddy_module->new;
+ok UNIVERSAL::isa($buddy, 'MyContact::Virtual::Person');
+ok ref($instance->can('first_name')), 'CODE';
 

@@ -3,12 +3,16 @@ use strict;
 use AutoCode::Root;
 our @ISA=qw(AutoCode::Root);
 use AutoCode::ModuleModel;
+# use AutoCode::Initializer;
+use AutoCode::Plurality;
+
+use AutoCode::AccessorMaker('$'=>[qw(schema package_prefix)]);
+
+use AutoCode::Compare;
 
 sub _initialize {
     my ($self, @args)=@_;
 
-    $self->_add_scalar_accessor('schema');
-    $self->_add_scalar_accessor('package_prefix');
     my ($schema, $package_prefix)=
         $self->_rearrange([qw(SCHEMA PACKAGE_PREFIX)], @args);
     defined $schema or $self->throw("NO Schema set");
@@ -18,7 +22,7 @@ sub _initialize {
     $self->package_prefix($package_prefix);
 }
 
-*make_virtual_module = \&make_module;
+# *make_virtual_module = \&make_module;
 
 sub make_module {
     my ($self, $type, $isa) =@_;
@@ -34,77 +38,70 @@ sub make_module {
     if(@isa){
         no strict 'refs';
         foreach(@isa){
-            push @{"$vp\::ISA"}, $self->make_virtual_module($_);
+            push @{"$vp\::ISA"}, $self->make_module($_);
         }   
     }
 
     # virtual package is with the consideration of schema name and type.    
     my $vp = $self->_get_virtual_package($type);
     no strict 'refs';                                         
-    push @{"$vp\::ISA"}, $isa unless @{"$vp\::ISA"};                     
+    push @{"$vp\::ISA"}, $isa unless grep /^$isa$/, @{"$vp\::ISA"};                     
 #    $self->_add_scalar_accessor(@scalar_accessors);           
     $self->debug("making $type in $vp");
     
 #    map {*{"$vp\::$_"} = \&{__PACKAGE__."::$_"}} @scalar_accessors;         
-    map {$self->_add_scalar_accessor($_, $vp);} $model->get_scalar_attributes;
-    map {$self->_add_array_accessor([$_, $schema->get_plural($_)], $vp);} 
-        $model->get_array_attributes;
-    $self->_make_initialize($type);
+    map {AutoCode::AccessorMaker->make_scalar_accessor($_, $vp);} 
+        $model->get_scalar_attributes;
+    map {AutoCode::AccessorMaker->make_array_accessor(
+        [$_, $schema->get_plural($_)], $vp);
+    } $model->get_array_attributes;
+    $self->_make_initialize($type, $vp);
+    $self->_make_friends($type, $vp);
     return $vp;
 }
 
 
 sub _make_initialize {
-    my ($self, $type)=@_;
+    my ($self, $type, $pkg)=@_;
     my $schema = $self->schema;
     my $package_prefix=$self->package_prefix;
     my $model = $self->schema->get_module_model($type);
-    my @scalar_attrs = $model->get_scalar_attributes;
-    my @array_attrs  = $model->get_array_attributes;
-    my @array_attrs_plural= map {$schema->get_plural($_)} @array_attrs;
-    my $vp = $self->_get_virtual_package($type);
-    my $source = 'sub { my($dummy, @args)=@_;'."\n";
-# The line below is for debug. It will run only when the made module is working
-#    $source .= "print 'I am in _init of '. ref(\$dummy) . '_____';";
-    
-#    $source .= "\$dummy->SUPER::_initialize(\@args);\n";
-    if(@scalar_attrs || @array_attrs){
-        $source .= 'my ('. join ',',  map{"\$$_"} @scalar_attrs;
-        $source .= ', '. join ',', map{"\$$_"} @array_attrs_plural;
-        $source .= ')='."\n".'$dummy->_rearrange([qw(';
-        $source .= join ' ', @scalar_attrs;
-        $source .= ' '. join ' ', @array_attrs_plural;
-        $source .= ')], @args);'."\n";
-        map {$source .= 
-            "defined \$$_ and \$dummy->$_(\$$_);\n"} @scalar_attrs;
-
-    # if the array ref is defined, assign the dereferenced into array, 
-    # otherwise initialize the array by invoking remove_$plural
-        map {my ($singular, $plural)=($_, $schema->get_plural($_));
-            $source .= <<END_OF_ARRAY_ACCESSORS;
-if(ref(\$$plural) eq'ARRAY'){
-    \$dummy->add_$singular(\$_) foreach (\@{\$$plural});
-}else{
-    \$dummy->remove_$plural;
+    my $pkg=$self->_get_virtual_package($type);
+    AutoCode::AccessorMaker->make_initialize_by_model($model, $pkg);
 }
-END_OF_ARRAY_ACCESSORS
-        }@array_attrs;
-    }
-# The following 3 lines are to replace 'the not-working USPER with eval'
-# It spends almost a whole afternoon of the second day of 2004.
-    $source .= "no strict 'refs';\n";
-    $source .= 'my $super=AutoCode::Root::_find_super("'. $vp .'", "_initialize");'."\n";
-    $source .= '&{$super. "::_initialize"}($dummy, @args);'."\n";
 
-#    $source .= "\$dummy->SUPER::_initialize(\@args);\n";
-#    $source .= "print '______' \. *{\$dummy->SUPER::_initialize} \. \"\\n\"";
-    $source .= '};'."\n";
-    $self->debug("$source");
-#    print "$source\n";
+sub _make_friends {
+    my ($self, $type, $pkg)=@_;
+    my $schema = $self->schema;
+    my @friends=$schema->find_friends($type);
+    foreach my $friend_nickname (@friends){
+#        print STDERR "$_ as a friend\n\L$_\n";
+        AutoCode::AccessorMaker->make_hash_accessor("$friend_nickname", $pkg);
+        $self->_make_friend_add($type, $friend_nickname, $pkg);
+            
+    }
+}
+
+sub _make_friend_add {
+    my ($self, $my_nickname, $friend_nickname, $pkg)=@_;
+    
+    my $glob="$pkg\::get_". AutoCode::Plurality->query_plural($friend_nickname);
+    $glob="$pkg\::add_$friend_nickname";
+    my $slot="$pkg\::$friend_nickname\_\%";
     no strict 'refs';
-    $_ = $source;
-    *{"$vp\::_initialize"} = eval $source;
-    $self->throw( "Error when eval'ing _initialize\n$@") if($@);
+    *$glob=sub{
+        my ($self, $friend, $extra)=@_;
+        return unless defined $friend;
+        $self->{$slot}={} unless exists $self->{$slot};
+        $self->{$slot}->{$friend}=$extra;
+        # add itself to its friend as friend.
+        my $method="get_". AutoCode::Plurality->query_plural($my_nickname);
+        my %hash=$friend->$method(); 
+        unless(grep {AutoCode::Compare->equal($_, "$self")} keys %hash){
+            my $my_method="add_$my_nickname";
+            $friend->$my_method($self, $extra);
+        }
+    };
 }
 
 sub _get_virtual_package {

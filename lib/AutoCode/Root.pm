@@ -6,23 +6,7 @@ our $VERSION='0.01';
 our $DEBUG;
 # our $debug;
 use AutoCode::SymbolTableUtils;
-our $accessor_maker;
 use AutoCode::AccessorMaker;
-BEGIN{
-    $accessor_maker = AutoCode::AccessorMaker->new;
-}
-
-sub _add_scalar_accessor {
-    my ($self, $accessor, $pkg)=@_;
-    $pkg ||= ref(caller) || caller;
-    $accessor_maker->make_scalar_accessor($accessor, $pkg);
-}
-
-sub _add_array_accessor {
-    my ($self, $accessor, $pkg)=@_;
-    $pkg ||= ref(caller) || caller;
-    $accessor_maker->make_array_accessor($accessor, $pkg);
-}
 
 sub _find_super {
     my ($dummy, $method)=@_;
@@ -36,6 +20,13 @@ sub _find_super {
         return $super if defined $super;
     }
     return undef;
+}
+
+sub debug {
+    my ($class, $msg)=@_;
+    print STDERR "[". ref($class). "]\n$msg\n" 
+        unless $AutoCode::Root::DEBUG==0;
+
 }
 
 1;

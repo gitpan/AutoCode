@@ -5,23 +5,70 @@ use AutoCode::Root;
 our @ISA=qw(AutoCode::Root);
 our %PLURALS;
 use AutoCode::ModuleModel;
+use AutoCode::AccessorMaker(
+    '$'=>[qw(plurals modules package_prefix)], 
+    '@'=>[qw(friendship)]
+);
+use AutoCode::Friendship;
+
+use AutoCode::Plurality;
 
 sub _initialize {
     my ($self, @args)=@_;
     $self->SUPER::_initialize(@args);
-    $self->_add_scalar_accessor('modules', __PACKAGE__);
-    $self->_add_scalar_accessor('package_prefix');
     
-    my ($modules, $package_prefix, $plurals)=
+    my ($modules, $package_prefix, $plurals, $modules_type_grouped)=
         $self->_rearrange(
-            [qw(MODULES PACKAGE_PREFIX PLURALS)], @args);
+            [qw(MODULES PACKAGE_PREFIX PLURALS modules_type_grouped)], @args);
     
     (ref($modules) eq 'HASH') and $self->modules($modules);
+    if(defined $modules_type_grouped){
+#        print STDERR "FOUND modules_type_grouped\n";
+        $modules= {} unless defined $modules;
+        $self->throw('modules_type_grouped must be a hash ref')
+            unless ref($modules_type_grouped) eq 'HASH';
+        foreach my $module_name(keys %$modules_type_grouped){
+            $self->throw("one key '$module_name' in modules_type_grouped has been defined\nCURRENT KEYS:\t". join("\t", keys %$modules))
+                if exists $modules->{$module_name};
+            my $module_type_grouped = $modules_type_grouped->{$module_name};
+            my %module;
+            foreach my $field_type (keys %$module_type_grouped){
+                foreach (@{$module_type_grouped->{$field_type}}){
+                $module{$_}= $field_type;
+                }
+            }
+            $modules->{$module_name}= \%module;
+        }
+        $self->modules($modules);
+    }
+    
+    our $FRIENDSHIP_TYPE='~friends';
+    if(exists $modules->{$FRIENDSHIP_TYPE}){
+        my $friends=$modules->{$FRIENDSHIP_TYPE};
+        delete $modules->{$FRIENDSHIP_TYPE};
+        foreach my $friend(keys %$friends){
+            my @peers=split /-/, $friend;
+            my $extras=$friends->{$friend};
+            $extras=~ s/;$//;
+            my @extras=split /;/, $extras;
+            my $friendship = AutoCode::Friendship->new(
+                -peer_string => $friend,
+                -peers => \@peers,
+                -extras => \@extras
+            );
+            $self->add_friendship($friendship);
+        }
+    }
+
     $self->package_prefix($package_prefix);
+    $self->plurals({});
     if(defined $plurals){
         if(ref($plurals) eq 'HASH'){
             # not directly assign to the package variable, avoiding overwrite
-            $PLURALS{$_}=$plurals->{$_} foreach keys %$plurals;
+            $self->plurals($plurals);
+            foreach (keys %$plurals){
+                AutoCode::Plurality->add_plural($_, $plurals->{$_});
+            }
         }else{
             $self->throw("plurals must be a hash reference");
         }
@@ -43,7 +90,8 @@ sub get_all_types {
 }
 
 sub get_friends {
-    return @{shift->modules->{'~friends'}};
+    my $friends=shift->modules->{'~friends'};
+    return (defined $friends)? @$friends : [];
 }
 
 sub dependence {
@@ -64,6 +112,19 @@ sub dependence {
     }
 
     return %dependance;
+}
+
+sub find_friends {
+    my ($self, $module)=@_;
+    $module = ref($module) || $module;
+    my @friends; # to return
+    my @friendship=$self->get_friendships;
+    foreach my $friendship ($self->get_friendships){
+        if(grep /^$module$/, $friendship->get_peers){
+            push @friends, grep !/^$module$/, $friendship->get_peers;
+        }
+    }
+    return @friends;
 }
 
 sub has_a {
@@ -106,6 +167,13 @@ sub _check_type {
 
 sub get_plural {
     my ($self, $singular)=@_;
-    return (exists $PLURALS{$singular})?$PLURALS{$singular}:"${singular}s";
+    my $plurals=$self->plurals;
+    return (exists $plurals->{$singular})?$plurals->{$singular}:"${singular}s";
 }
+
+sub ref_plural {
+    my ($self, $singular)=@_;
+    return [$singular, $self->get_plural($singular)];
+}
+
 1;
